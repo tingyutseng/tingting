@@ -1,180 +1,349 @@
 import streamlit as st
-import time
+import hashlib
+import textwrap
 
-# --- 1. 數據核心與邏輯引擎 (Backend Data & Logic) ---
+# ---- Data Definitions ----
+TRIGRAMS = {
+    "乾": {"name": "乾", "bin": "111", "symbol": "☰", "element": "金"},
+    "兌": {"name": "兌", "bin": "110", "symbol": "☱", "element": "金"},
+    "離": {"name": "離", "bin": "101", "symbol": "☲", "element": "火"},
+    "震": {"name": "震", "bin": "100", "symbol": "☳", "element": "木"},
+    "巽": {"name": "巽", "bin": "011", "symbol": "☴", "element": "木"},
+    "坎": {"name": "坎", "bin": "010", "symbol": "☵", "element": "水"},
+    "艮": {"name": "艮", "bin": "001", "symbol": "☶", "element": "土"},
+    "坤": {"name": "坤", "bin": "000", "symbol": "☷", "element": "土"},
+}
 
-class IChingLogic:
-    def __init__(self):
-        # A. 八卦基礎定義 (Key: 1-8)
-        self.trigrams = {
-            1: {"name": "乾", "bin": "111", "symbol": "☰", "element": "金"},
-            2: {"name": "兌", "bin": "011", "symbol": "☱", "element": "金"},
-            3: {"name": "離", "bin": "101", "symbol": "☲", "element": "火"},
-            4: {"name": "震", "bin": "001", "symbol": "☳", "element": "木"},
-            5: {"name": "巽", "bin": "110", "symbol": "☴", "element": "木"},
-            6: {"name": "坎", "bin": "010", "symbol": "☵", "element": "水"},
-            7: {"name": "艮", "bin": "100", "symbol": "☶", "element": "土"},
-            8: {"name": "坤", "bin": "000", "symbol": "☷", "element": "土"}
-        }
+THEMES = [
+    "事業策略",
+    "財務投資",
+    "產品設計",
+    "人力資源/團隊",
+    "市場/品牌",
+    "危機管理",
+    "個人決策/關係",
+    "政策規劃/制度設計",
+]
 
-        # 五行相生相剋關係表 (用於氣場協調度判斷)
-        self.element_relations = {
-            ('金', '木'): '相剋 (衝突)', ('木', '土'): '相剋 (衝突)', ('土', '水'): '相剋 (衝突)', 
-            ('水', '火'): '相剋 (衝突)', ('火', '金'): '相剋 (衝突)', 
-            ('金', '水'): '相生 (助力)', ('水', '木'): '相生 (助力)', ('木', '火'): '相生 (助力)', 
-            ('火', '土'): '相生 (助力)', ('土', '金'): '相生 (助力)', 
-            ('金', '金'): '相同 (疊加)', ('木', '木'): '相同 (疊加)', ('水', '水'): '相同 (疊加)', 
-            ('火', '火'): '相同 (疊加)', ('土', '土'): '相同 (疊加)'
-        }
+# Generate 128 contextual factors (8 themes x 8 gua x 2 positions)
+CONTEXTUAL_FACTORS = {}
+for t_idx, theme in enumerate(THEMES):
+    for g_key, g_data in TRIGRAMS.items():
+        for pos in ["上卦", "下卦"]:
+            key = f"{theme}__{g_key}__{pos}"
+            # modern, practical phrasing
+            CONTEXTUAL_FACTORS[key] = (
+                f"[{theme}] 當{pos}為 {g_key}（{g_data['element']}），常見情境："
+                + {
+                    "乾": "決策驅動、領導、資源整合的問題",
+                    "兌": "溝通、客戶反饋與情感動態",
+                    "離": "品牌/可視化表現與能見度的抉擇",
+                    "震": "創新驅動、快速試錯的實驗文化",
+                    "巽": "策略傳播、滲透性成長與滲透策略",
+                    "坎": "資訊風險、財務流動性或安全疑慮",
+                    "艮": "規範、邊界管理和慢速穩定成長",
+                    "坤": "資源承載、支持系統與穩定性需求",
+                }[g_key]
+            )
 
-        # B. 8 大情境決策主題
-        self.themes = {
-            "1_事業策略": "目標確立、專案推進、市場競爭",
-            "2_財務與投資": "資金流動、風險控制、資產配置",
-            "3_核心關係": "情感穩定、伴侶溝通、家庭和睦",
-            "4_社交與貴人": "人脈拓展、合作辨識、社交活動",
-            "5_個人成長": "學習精進、心態調整、自我實現",
-            "6_健康與福祉": "身心狀態、能量平衡、長期保健",
-            "7_危機與風險": "突發事件處理、法律訴訟、止損轉機",
-            "8_環境與變動": "遷徙適應、宏觀趨勢、地域變動"
-        }
+# ---- Hexagram (64) generation scaffold ----
+# We'll create 64 combinated hexagrams programmatically. For each, provide
+# name, tag, gua_ci, yao_ci (six-level interpretations), sec_dec_focus (1-6).
+HEXAGRAMS = {}
 
-        # C. 主題 → 八卦對應敘述
-        self.contextual_factors = {
-            "1_事業策略": {
-                1: {'upper': "宏觀經濟/業界領袖/大勢有利", 'lower': "剛健意志/決斷力/主導資源"},
-                2: {'upper': "資源缺口/溝通障礙/協議協商", 'lower': "語言表達/喜悅期待/資源互惠"},
-                3: {'upper': "品牌曝光/公關熱度/熱門產業", 'lower': "專案熱情/明確目標/主動推廣"},
-                4: {'upper': "突發衝擊/技術變革/競爭者發動", 'lower': "積極行動/主動爭取/缺乏穩重"},
-                5: {'upper': "趨勢漸進/外來影響/計畫緩慢", 'lower': "彈性/循序漸進/計畫執行力"},
-                6: {'upper': "潛在危機/市場風險/資源陷阱", 'lower': "擔憂/準備不足/缺乏方向"},
-                7: {'upper': "專案停滯/目標不變/區域限制", 'lower': "專注/謹慎/不願變通"},
-                8: {'upper': "市場基礎/後勤供應/合作環境", 'lower': "執行力/包容性/耐心與準備"},
-            },
-            # 其餘主題共用
-            "2_財務與投資": {k: {'upper': "外部財務狀況", 'lower': "個人投資心態"} for k in range(1, 9)},
-            "3_核心關係": {k: {'upper': "外部情感環境", 'lower': "個人情感狀態"} for k in range(1, 9)},
-            "4_社交與貴人": {k: {'upper': "外部人脈圈", 'lower': "個人社交主動性"} for k in range(1, 9)},
-            "5_個人成長": {k: {'upper': "外部學習資源", 'lower': "個人學習心態"} for k in range(1, 9)},
-            "6_健康與福祉": {k: {'upper': "外部環境影響", 'lower': "個人身體狀況"} for k in range(1, 9)},
-            "7_危機與風險": {k: {'upper': "外部風險程度", 'lower': "個人應對準備"} for k in range(1, 9)},
-            "8_環境與變動": {k: {'upper': "外部大環境趨勢", 'lower': "個人適應能力"} for k in range(1, 9)},
-        }
+def make_hexagram_key(upper, lower):
+    return f"{upper}-{lower}"
 
-        # D. 卦辭資料庫（示例）
-        self.hexagram_data = {
-            "111111": { 
-                "name": "乾為天", "tag": "自強不息", 
-                "gua_ci": "乾：元亨利貞。",
-                "yao_ci": {
-                    1: "初九：潛龍勿用。",
-                    2: "九二：見龍在田，利見大人。",
-                    3: "九三：君子終日乾乾，夕惕若，厲，無咎。",
-                    4: "九四：或躍在淵，無咎。",
-                    5: "九五：飛龍在天，利見大人。",
-                    6: "上九：亢龍有悔。"
-                },
-                "sec_dec_focus": 5 
-            },
-            "000000": {
-                "name": "坤為地", "tag": "厚德載物",
-                "gua_ci": "坤：元亨，利牝馬之貞。",
-                "yao_ci": {},
-                "sec_dec_focus": 2
-            }
-        }
-
-    # --- 核心邏輯函數 ---
-
-    def get_hexagram_data(self, theme, upper_id, lower_id):
-        current_theme = theme
-
-        upper = self.trigrams[upper_id]
-        lower = self.trigrams[lower_id]
-        hex_code = upper["bin"] + lower["bin"]
-
-        # 取得主題語境
-        context_data = self.contextual_factors.get(current_theme, {})
-        upper_ctx = context_data.get(upper_id, {}).get('upper', f"【{upper['name']}】抽象定義")
-        lower_ctx = context_data.get(lower_id, {}).get('lower', f"【{lower['name']}】抽象定義")
-
-        # 卦辭資料
-        hex_data = self.hexagram_data.get(
-            hex_code,
-            {"name": f"上{upper['name']}下{lower['name']}", 
-             "tag": "數據缺失", 
-             "gua_ci": "此卦辭數據缺失。",
-             "yao_ci": {},
-             "sec_dec_focus": 1}
+for u_key, u in TRIGRAMS.items():
+    for l_key, l in TRIGRAMS.items():
+        key = make_hexagram_key(u_key, l_key)
+        # name convention: "上卦/下卦"
+        name = f"{u_key}上/{l_key}下"
+        # tag - short phrase for modern usage
+        tag = f"{u['element']}→{l['element']} 節點分析"
+        # gua_ci: brief modernised hexagram statement
+        gua_ci = (
+            f"當上卦為 {u_key}（{u['element']}），下卦為 {l_key}（{l['element']}）。"
+            + "這代表資源、節奏與風險的組合需要被同時考量，"
+            + "適用於需要在策略與操作間取得平衡的決策情境。"
         )
+        # Determine sec_dec_focus deterministically for reproducibility
+        h = hashlib.sha1(key.encode('utf-8')).hexdigest()
+        sec_focus = (int(h, 16) % 6) + 1  # 1..6
 
-        # 五行風險
-        risk_score, risk_desc, risk_color, elem_relation = self._evaluate_static_risk(
-            upper["element"], lower["element"]
-        )
+        # Create six yao lines with modern applications and yin/yang attribute
+        yao_ci = []
+        for i in range(6):
+            idx = i + 1
+            # simple yin/yang: odd lines -> yang (1), even -> yin (0)
+            yin_yang = 1 if idx % 2 == 1 else 0
+            # create a short modern interpretation for each line
+            yao_text = (
+                f"第{idx}爻 ({'陽' if yin_yang==1 else '陰'})：在{THEMES[(hash(key + str(idx)) % len(THEMES))]}情境中，"
+                + f"代表宜{'主動' if yin_yang==1 else '守勢'}行動，具體提醒：注意{u_key}->{l_key}的能量流向。"
+            )
+            yao_ci.append({
+                "index": idx,
+                "yin_yang": yin_yang,
+                "text": yao_text,
+            })
 
-        # 世應
-        is_se_ying_conflict = self._check_se_ying(hex_code)
+        HEXAGRAMS[key] = {
+            "name": name,
+            "tag": tag,
+            "gua_ci": gua_ci,
+            "yao_ci": yao_ci,
+            "sec_dec_focus": sec_focus,
+            # store upper/lower elements for quick lookup
+            "upper": u_key,
+            "lower": l_key,
+        }
 
-        # AI 決策洞察
-        ai_insight = self._generate_ai_decision_insight(
-            hex_data, upper, lower, risk_desc,
-            current_theme, upper_ctx, lower_ctx,
-            is_se_ying_conflict, elem_relation
-        )
+# ---- Five-element relation helper ----
+# Simple map for generating relationship (相生/相剋/相同)
+GENERATIVE = {
+    '木': '火',
+    '火': '土',
+    '土': '金',
+    '金': '水',
+    '水': '木',
+}
 
-        return (
-            hex_code, upper, lower, hex_data,
-            upper_ctx, lower_ctx,
-            risk_score, risk_desc, risk_color,
-            is_se_ying_conflict, ai_insight, elem_relation
-        )
+CONTROLLING = {
+    '木': '土',
+    '火': '金',
+    '土': '水',
+    '金': '木',
+    '水': '火',
+}
 
-    def _evaluate_static_risk(self, u_elem, l_elem):
-        relation_pair = (u_elem, l_elem)
-        reverse_relation_pair = (l_elem, u_elem)
+def five_element_relation(u_elem, l_elem):
+    if u_elem == l_elem:
+        return "相同"
+    if GENERATIVE.get(u_elem) == l_elem:
+        return "相生"
+    if CONTROLLING.get(u_elem) == l_elem:
+        return "相剋"
+    # if none of the above, try reverse
+    if GENERATIVE.get(l_elem) == u_elem:
+        return "被相生"
+    if CONTROLLING.get(l_elem) == u_elem:
+        return "被相剋"
+    return "中性"
 
-        relation = self.element_relations.get(relation_pair)
-        if relation is None:
-            relation = self.element_relations.get(reverse_relation_pair)
+# ---- Core logic: get_hexagram_data ----
 
-        if relation is None:
-            if u_elem == l_elem:
-                relation = "相同 (疊加)"
-            else:
-                return "穩定中性", "穩定中性 (萬物靜觀皆自得)", "info", "穩定中性"
+def get_hexagram_data(upper_key, lower_key, theme):
+    """
+    Given upper and lower trigram keys and a theme, return a consolidated
+    analysis including: five-element coordination (氣場警示), 世應關係,
+    and a refined AI decision insight (HTML/Markdown string).
+    """
+    key = make_hexagram_key(upper_key, lower_key)
+    if key not in HEXAGRAMS:
+        raise ValueError("無效的卦組合")
 
-        if relation.startswith("相生"):
-            return "高度協調", "高度協調 (天助自助，能量順暢)", "success", relation
-        elif relation.startswith("相剋"):
-            return "結構衝突", "結構衝突 (時與我爭，挑戰提升)", "error", relation
-        elif relation.startswith("相同"):
-            return "能量疊加", "能量疊加 (力量集中但易極端)", "warning", relation
+    hex_data = HEXAGRAMS[key]
 
-        return "穩定中性", "穩定中性 (萬物靜觀皆自得)", "info", "穩定中性"
+    # A. 氣場警示 (五行協調度)
+    u_elem = TRIGRAMS[upper_key]['element']
+    l_elem = TRIGRAMS[lower_key]['element']
+    fe_relation = five_element_relation(u_elem, l_elem)
 
-    def _check_se_ying(self, hex_code):
-        se_yao = hex_code[2]
-        ying_yao = hex_code[5]
+    if fe_relation in ("相生", "被相生"):
+        fe_label = "高度協調（天助自助）"
+        fe_comment = "資源與機會相互補充，傾向於主動擴展與整合。"
+    elif fe_relation in ("相剋", "被相剋"):
+        fe_label = "結構衝突（時與我爭）"
+        fe_comment = "需求與阻力同時存在，採取防禦/調整策略以避免消耗。"
+    elif fe_relation == "相同":
+        fe_label = "能量疊加（專注如一/易趨極端）"
+        fe_comment = "優勢集中但需警惕過度偏執或資源浪費。"
+    else:
+        fe_label = "中性（複合情況）"
+        fe_comment = "局面平衡，需靠策略選擇來引導走向。"
 
-        if se_yao != ying_yao:
-            return "世應相吸：互補、有利於合作。"
-        else:
-            return "世應相斥：內外同質，較難借力。"
+    five_element = {
+        "upper_element": u_elem,
+        "lower_element": l_elem,
+        "relation": fe_relation,
+        "label": fe_label,
+        "comment": fe_comment,
+    }
 
-    def _generate_ai_decision_insight(
-        self, hex_data, upper, lower, risk_desc,
-        theme, upper_ctx, lower_ctx,
-        se_ying_desc, elem_relation
-    ):
-        name = hex_data["name"]
-        tag = hex_data["tag"]
+    # B. 世應關係 (third yao vs sixth yao yin/yang)
+    yao_list = hex_data['yao_ci']
+    # third is index 2 (1-based 3)
+    shi = yao_list[2]['yin_yang']
+    ying = yao_list[5]['yin_yang']
+    if shi != ying:
+        relation_label = "不同（相吸）"
+        relation_comment = "世應互補，有利建立合作或外部支持。"
+    else:
+        relation_label = "相同（相斥/重疊）"
+        relation_comment = "需以自我調整為主，可能出現內部摩擦。"
 
-        opening = f"您目前位於 **{name}（{tag}）** 的時空格局中。"
-        env = f"外在狀態（上卦 {upper['name']}）→ {upper_ctx}"
-        inner = f"內在狀態（下卦 {lower['name']}）→ {lower_ctx}"
-        risk = f"五行氣場：{elem_relation}，屬於 **{risk_desc}**。"
-        seying = f"世應關係：{se_ying_desc}"
+    shiying = {
+        "shi": shi,
+        "ying": ying,
+        "label": relation_label,
+        "comment": relation_comment,
+    }
 
-        return f"{opening}\n\n{env}\n\n{inner}\n\n{risk}\n\n{seying}"
+    # C. 哲理總結生成
+    insight_md = _generate_ai_decision_insight(hex_data, five_element, shiying, theme)
+
+    return {
+        "hexagram": hex_data,
+        "five_element": five_element,
+        "shiying": shiying,
+        "insight_md": insight_md,
+    }
+
+
+def _generate_ai_decision_insight(hex_data, five_element, shiying, theme):
+    """
+    Create a compact HTML/Markdown block that contains:
+    - A philosophical opening derived from the five-element label
+    - Core parameters list
+    - Core action principles based on combinations
+    """
+    # Philosophical opening based on five-element label
+    fe_label = five_element['label']
+    if "高度協調" in fe_label:
+        opening = "時空有助，乘勢而行；秉持整合之智，以小步快驗證，再擴張。"
+    elif "結構衝突" in fe_label:
+        opening = "當下如風暴前夕：既非全然退場，也非莽撞前進。首重界面修補與能量重分配。"
+    elif "能量疊加" in fe_label:
+        opening = "能量集中，適合深耕；但勿忘外部校準，以免陷入過度自信的盲點。"
+    else:
+        opening = "局勢混合，策略先行；設定小目標與回饋機制以取得關鍵信息。"
+
+    # Parameter list
+    params = textwrap.dedent(f"""
+    **核心參數清單**
+
+    - 五行協調度：**{five_element['relation']}** — {five_element['label']}
+    - 上卦（U）：{hex_data['upper']}（{TRIGRAMS[hex_data['upper']]['element']}）
+    - 下卦（L）：{hex_data['lower']}（{TRIGRAMS[hex_data['lower']]['element']}）
+    - 情境主題：{theme}
+    - 上卦情境：{CONTEXTUAL_FACTORS.get(f'{theme}__{hex_data['upper']}__上卦','-')}
+    - 下卦情境：{CONTEXTUAL_FACTORS.get(f'{theme}__{hex_data['lower']}__下卦','-')}
+    - 世應關係：**{shiying['label']}** — {shiying['comment']}
+
+    """)
+
+    # Core action principles:
+    # Combine five_element and shiying to produce tactical guidelines
+    actions = []
+    if "高度協調" in five_element['label'] and "不同（相吸）" in shiying['label']:
+        actions.append("乘勢而進：利用互補關係快速取得外部資源或合作。")
+        actions.append("保持快速回饋循環，確保整合效益可測量。")
+    elif "高度協調" in five_element['label'] and "相同（相斥/重疊）" in shiying['label']:
+        actions.append("重點內化：集中資源加速執行，同時設立內部審查機制以防偏差。")
+    elif "結構衝突" in five_element['label']:
+        actions.append("優先化緩解措施：減少摩擦，尋找短期替代路徑以保存核心勢能。")
+        actions.append("若必要，分階段撤退並重整資源配置。")
+    elif "能量疊加" in five_element['label']:
+        actions.append("適度放大：將有限資源投入高概率回報的小域，避免資源分散。")
+        actions.append("建立外部對照指標，強制檢驗盲點。")
+    else:
+        actions.append("分散風險並快速學習：採用小步試驗策略，逐步建立信息優勢。")
+
+    # Generic final principle
+    actions.append("最終行動準則：知進知退，方能持盈保泰。")
+
+    action_md = "\n".join([f"- {a}" for a in actions])
+
+    # Highlight which yao is the decision focus
+    focus_idx = hex_data['sec_dec_focus']
+
+    # Assemble as HTML/Markdown block
+    md = textwrap.dedent(f"""
+    <div class="iccss-insight">
+    <h3>時空定性 — {fe_label}</h3>
+    <p><em>{opening}</em></p>
+    {params}
+    **核心行動原則**
+
+    {action_md}
+
+    <p><small>決策焦點：第 {focus_idx} 爻（以六爻倒序顯示）</small></p>
+    </div>
+    """)
+
+    return md
+
+# ---- Streamlit Frontend ----
+
+st.set_page_config(page_title="IC-CSS 易時空決策系統 - Pro (V4.1)", layout="centered")
+st.title("IC-CSS 易時空決策系統 — Pro (V4.1 精煉版)")
+st.caption("策略先行·時空定性 · AI 輔助決策報告")
+
+with st.sidebar:
+    st.header("輸入參數")
+    upper = st.selectbox("選擇上卦（上三爻）", list(TRIGRAMS.keys()), index=0)
+    lower = st.selectbox("選擇下卦（下三爻）", list(TRIGRAMS.keys()), index=7)
+    theme = st.selectbox("情境主題", THEMES, index=0)
+    show_raw = st.checkbox("顯示原始卦數據 (debug) ", value=False)
+
+# Validate combination
+try:
+    analysis = get_hexagram_data(upper, lower, theme)
+except Exception as e:
+    st.error(f"分析失敗：{e}")
+    st.stop()
+
+hexagram = analysis['hexagram']
+
+# Main report structure
+st.header("時空決策洞察 (V4.1)")
+# Insight block (HTML)
+st.markdown(analysis['insight_md'], unsafe_allow_html=True)
+
+# 卦象結構：簡單六爻圖與上/下卦標注
+st.subheader("卦象結構")
+col1, col2 = st.columns([1, 2])
+with col1:
+    st.markdown(f"**卦名**：{hexagram['name']}  ")
+    st.markdown(f"**標籤**：{hexagram['tag']}  ")
+    st.markdown(f"**卦辭**：{hexagram['gua_ci']}  ")
+
+# Draw six lines (倒序顯示，六爻從上到下為 6..1) with CSS highlighting
+focus = hexagram['sec_dec_focus']
+
+yao_lines = list(reversed(hexagram['yao_ci']))  # reversed for display 6..1
+
+line_html = "<div class='yao-wrap' style='font-family:monospace;'>"
+for l in yao_lines:
+    idx = l['index']
+    is_focus = (idx == focus)
+    yin_yang_char = '——' if l['yin_yang'] == 1 else '— —'
+    style = "padding:8px;margin:4px 0;border-radius:6px;"
+    if is_focus:
+        style += "background:linear-gradient(90deg, rgba(250,250,210,0.9), rgba(240,240,200,0.6));border:1px solid #d0b84c;"
+    else:
+        style += "background:transparent;border:1px solid rgba(0,0,0,0.05);"
+    line_html += f"<div style='{style}'><strong>第{idx}爻</strong> {yin_yang_char} — {l['text']}</div>"
+line_html += "</div>"
+
+with col2:
+    st.markdown(line_html, unsafe_allow_html=True)
+
+# 卦象簡述與行動建議（倒序顯示六爻）
+st.subheader("卦象簡述與行動建議")
+for l in yao_lines:
+    idx = l['index']
+    st.markdown(f"**第{idx}爻** — {'陽' if l['yin_yang']==1 else '陰'}： {l['text']}")
+
+# Final summary
+st.subheader("最終目標總結")
+st.markdown("**綜合建議**：" + analysis['five_element']['comment'])
+
+if show_raw:
+    st.subheader("(Debug) 原始資料")
+    st.json(analysis)
+
+st.markdown("---")
+st.caption("建立者：IC-CSS Project · 請將本工具用作策略輔助，而非嚴格決策替代")
 
