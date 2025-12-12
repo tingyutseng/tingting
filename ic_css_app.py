@@ -26,7 +26,6 @@ class IChingLogic:
             ('火', '火'): '相同 (疊加)', ('土', '土'): '相同 (疊加)'
         }
 
-
         # B. 8 大情境決策主題
         self.themes = {
             "1_事業策略": "目標確立、專案推進、市場競爭",
@@ -85,13 +84,16 @@ class IChingLogic:
 
     # --- 核心邏輯函數 ---
 
-    # 確保參數 theme 存在
     def get_hexagram_data(self, theme, upper_id, lower_id):
+        # *** NameError 修正點：用本地變數儲存 theme 的值 ***
+        current_theme = theme 
+        
         upper = self.trigrams[upper_id]
         lower = self.trigrams[lower_id]
         hex_code = upper["bin"] + lower["bin"]
         
-        context_data = self.contextual_factors.get(theme, {})
+        # 使用本地變數 current_theme 
+        context_data = self.contextual_factors.get(current_theme, {})
         upper_ctx = context_data.get(upper_id, {}).get('upper', f"【{upper['name']}】抽象定義")
         lower_ctx = context_data.get(lower_id, {}).get('lower', f"【{lower['name']}】抽象定義")
         
@@ -104,7 +106,8 @@ class IChingLogic:
         is_se_ying_conflict = self._check_se_ying(hex_code)
         
         # 哲理總結 (AI 決策洞察)
-        ai_insight = self._generate_ai_decision_insight(hex_data, upper, lower, risk_desc, theme, u_ctx, l_ctx, is_se_ying_conflict, elem_relation)
+        # 這裡改用 current_theme
+        ai_insight = self._generate_ai_decision_insight(hex_data, upper, lower, risk_desc, current_theme, u_ctx, l_ctx, is_se_ying_conflict, elem_relation)
 
         # 確保所有返回值都在這裡定義
         return hex_code, upper, lower, hex_data, u_ctx, l_ctx, risk_score, risk_desc, risk_color, is_se_ying_conflict, ai_insight, elem_relation
@@ -228,7 +231,7 @@ def main():
     st.set_page_config(page_title="IC-CSS 易時空決策系統", page_icon="☯️", layout="centered")
     app_logic = IChingLogic()
 
-    st.title("☯️ IC-CSS 易時空決策分析系統 V4.0")
+    st.title("☯️ IC-CSS 易時空決策分析系統 V4.1")
     st.caption("核心分析精煉化：整合協調度、世應關係與哲理總結")
     st.markdown("---")
 
@@ -260,12 +263,10 @@ def main():
 
     with col1:
         st.markdown("#### 🚀 外在環境 (上卦)")
-        # 設置默認選擇乾卦 (index=0) 方便您測試「乾為天」
         upper_sel = st.selectbox("選擇上卦：", options=trigram_keys, format_func=format_trigram_option_upper, index=0)
 
     with col2:
         st.markdown("#### 🧠 內在心態 (下卦)")
-        # 設置默認選擇乾卦 (index=0) 方便您測試「乾為天」
         lower_sel = st.selectbox("選擇下卦：", options=trigram_keys, format_func=format_trigram_option_lower, index=0)
 
     # C. 啟動按鈕
@@ -283,7 +284,7 @@ def main():
             # --- 報告區 ---
             st.header(f"📜 決策分析報告：{hex_data['name']}")
             
-            # V4.0 核心總結：使用 HTML 呈現精煉的 AI 決策洞察
+            # V4.1 核心總結：使用 HTML 呈現精煉的 AI 決策洞察
             st.markdown(ai_insight, unsafe_allow_html=True)
             
             st.markdown("---")
