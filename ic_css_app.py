@@ -27,7 +27,7 @@ class IChingLogic:
             ('火', '火'): '相同 (疊加)', ('土', '土'): '相同 (疊加)'
         }
 
-        # B. 8 大情境決策主題
+        # B. 8 大情境決策主題 (不變)
         self.themes = {
             "1_事業策略": "目標確立、專案推進、市場競爭",
             "2_財務與投資": "資金流動、風險控制、資產配置",
@@ -39,7 +39,7 @@ class IChingLogic:
             "8_環境與變動": "遷徙適應、宏觀趨勢、地域變動"
         }
         
-        # C. 128 個精確決策因子 (僅完整填入「事業策略」主題)
+        # C. 128 個精確決策因子 (不變)
         self.contextual_factors = {
             "1_事業策略": {
                 1: {'upper': "宏觀經濟/業界領袖/大勢有利", 'lower': "剛健意志/決斷力/主導資源"}, # 乾
@@ -60,7 +60,7 @@ class IChingLogic:
             "8_環境與變動": {k: {'upper': "外部大環境趨勢", 'lower': "個人適應能力"} for k in range(1, 9)},
         }
 
-        # D. 64 卦完整靜態數據庫 (乾為天完整數據)
+        # D. 64 卦完整靜態數據庫 (V5.2 增加水火既濟: 010101)
         self.hexagram_data = {
             "111111": { 
                 "name": "乾為天", "tag": "自強不息", "gua_ci": "乾：元亨利貞。",
@@ -79,7 +79,20 @@ class IChingLogic:
                 "yao_ci": {1: "初六：履霜，堅冰至。", 2: "六二：直方大，不習，無不利。", 3: "六三：含章可貞。", 4: "六四：括囊，無咎。", 5: "六五：黃裳，元吉。", 6: "上六：戰龍於野，其血玄黃。"},
                 "sec_dec_focus": 2 
             },
-            # --- 請在此處補齊其他 62 卦的數據 ---
+            # --- 新增 水火既濟 (Hexagram 63) ---
+            "010101": { 
+                "name": "水火既濟", "tag": "成功守成", "gua_ci": "既濟：亨，小利貞。初吉終亂。",
+                "yao_ci": {
+                    1: "初九：曳其輪，濡其尾，無咎。 (【事業解讀】: 剛開始需謹慎慢行，即使遇到小障礙也能化解，保持謙虛。)", 
+                    2: "六二：婦喪其茀，勿逐，七日得。 (【事業解讀】: 遇到小挫折或失去重要輔助，不需急躁追趕，保持耐心最終能恢復。)", 
+                    3: "九三：高宗伐鬼方，三年克之，小人勿用。 (【事業解讀】: 專案必須堅決執行，但過程漫長充滿挑戰，決策者應當果斷，但要避免任用小人或走捷徑。)", 
+                    4: "六四：繻有衣袽，終日戒。 (【事業解讀】: 已經達成階段性成功，但風險仍存。必須時刻保持警惕，不斷修補漏洞。)", 
+                    5: "九五：東鄰殺牛，不如西鄰之禴祭，實受其福。 (【事業解讀】: 專案應重實質、輕形式。不求盛大浮誇，務求實際成效和誠意，方能獲得真正的回報。)", 
+                    6: "上六：濡其首，厲。 (【事業解讀】: 成功達到極點，但過度深入，面臨溺水之危。應立即收手、放權或急流勇退，否則有災難。)"
+                },
+                "sec_dec_focus": 5 
+            },
+            # --- Pro 模型應在此處補齊其他 61 卦的數據 ---
         }
 
     # --- 核心邏輯函數 ---
@@ -95,15 +108,19 @@ class IChingLogic:
         u_ctx = context_data.get(upper_id, {}).get('upper', f"【{upper['name']}】抽象定義")
         l_ctx = context_data.get(lower_id, {}).get('lower', f"【{lower['name']}】抽象定義")
         
-        hex_data = self.hexagram_data.get(hex_code, {"name": f"上{upper['name']}下{lower['name']}", "tag": "數據缺失", "gua_ci": "此卦辭數據缺失。", "yao_ci": {}, "sec_dec_focus": 1})
+        # 如果數據庫中沒有該卦，返回一個帶有明確提示的佔位符
+        hex_data = self.hexagram_data.get(hex_code, {
+            "name": f"上{upper['name']}下{lower['name']}", 
+            "tag": "數據缺失", 
+            "gua_ci": "此卦辭數據缺失。", 
+            "yao_ci": {}, 
+            "sec_dec_focus": 1
+        })
         
         risk_score, risk_desc, risk_color, elem_relation = self._evaluate_static_risk(upper['element'], lower['element'])
         is_se_ying_conflict = self._check_se_ying(hex_code)
         
-        # V5.0: 哲理總結的 AI 洞察 (核心洞察區塊)
         ai_insight = self._generate_ai_decision_insight(hex_data, upper, lower, risk_desc, current_theme, u_ctx, l_ctx, is_se_ying_conflict, elem_relation, risk_score)
-
-        # V5.0: 合併後的周易原文解讀 (專業解讀區塊)
         full_translation = self._generate_full_translation(hex_data)
 
         return hex_code, upper, lower, hex_data, u_ctx, l_ctx, risk_score, risk_desc, risk_color, is_se_ying_conflict, ai_insight, elem_relation, full_translation
@@ -142,36 +159,39 @@ class IChingLogic:
             return "世應相斥/重疊：內外狀態相似，可能產生摩擦或力量難以借用，需靠自身力量。"
 
     def _generate_full_translation(self, hex_data):
-        """V5.0 要求：合併周易原文（卦辭+六爻）及其現代解讀為一個區塊。"""
+        """V5.2：合併周易原文及其現代解讀為一個區塊。"""
         gua_ci = hex_data.get('gua_ci', "此卦辭數據缺失。")
         yao_ci = hex_data.get('yao_ci', {})
         
         if not yao_ci:
-            return f"**【卦辭原文】** {gua_ci} <br> <br> **【現代解讀】** 該卦爻辭數據庫尚未補全，無法提供專業解讀。"
+            # 當數據庫缺失時，給出清晰的提示
+            return f"""
+            <div style="background-color: #fff0f0; padding: 20px; border-radius: 8px; border: 1px solid #dc3545;">
+                <h4 style="margin-top: 0; color: #dc3545;">🚨 數據庫警報：周易原文解讀缺失</h4>
+                <p><strong>【卦名】</strong> {hex_data['name']} / <strong>【卦辭】</strong> {gua_ci}</p>
+                <p>此卦的六爻數據庫尚未補全。請先補齊 <code>IChingLogic</code> 類中的 <code>self.hexagram_data</code> 才能生成完整的專業解讀和行動建議。</p>
+            </div>
+            """
 
         yao_list = []
         for i in range(1, 7):
             yao_text = yao_ci.get(i, f"第 {i} 爻數據缺失。")
-            # 只保留周易原文，不包含現代解讀括號內的部分
             clean_yao_text = yao_text.split('(')[0].strip()
             yao_list.append(f"**[{i} 爻]** {clean_yao_text}")
         
         combined_yao_text = "\n\n".join(yao_list)
         
-        # 提取所有現代解讀的部分 (例如 (【事業解讀】: ...)
         all_interpretations = [
             line.split('(')[-1].strip(')').replace('【事業解讀】:', '').strip() 
             for line in yao_ci.values() if '【事業解讀】' in line
         ]
         
-        # 將所有解讀合併成一段連貫的專業總結
         if all_interpretations:
-             # 使用 Markdown 格式化為一段連貫的文字
             professional_summary = " ".join(all_interpretations)
         else:
-            professional_summary = "該卦爻辭數據庫尚未補全或缺乏現代應用解讀。"
+            professional_summary = "該卦爻辭數據庫缺乏現代應用解讀，請檢查數據結構。"
         
-        # 最終輸出
+        # 最終輸出 (周易原文與專業解讀區塊)
         translation_html = f"""
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef;">
             <h4 style="margin-top: 0; color: #1e8449;">📜 專業解讀：總體趨勢與階段策略</h4>
@@ -191,11 +211,11 @@ class IChingLogic:
 
 
     def _generate_ai_decision_insight(self, hex_data, upper, lower, risk_desc, theme, u_ctx, l_ctx, is_se_ying_conflict, elem_relation, risk_score):
-        """生成 V5.1 核心洞察區塊 (融合標籤與協調度)"""
+        """V5.2 核心洞察區塊"""
         tag = hex_data['tag']
         name = hex_data['name']
         
-        # 1. 時空定性開場 (基於氣場警示)
+        # 1. 時空定性開場
         if risk_desc.startswith("高度協調"):
             opening_tone = "「天助自助，相生共榮。」"
         elif risk_desc.startswith("結構衝突"):
@@ -219,7 +239,7 @@ class IChingLogic:
         else:
             action_principle = "在鎖定此時空後，您的核心行動原則應是：**保持自覺，遵循卦象爻辭的階段性指引。**"
 
-        # V5.1 最終總結的 HTML 格式：第一大區塊
+        # V5.2 最終總結的 HTML 格式：第一大區塊
         final_insight = f"""
         <div style="background-color: #e6f7ff; border-radius: 12px; padding: 25px; border: 2px solid #007bff; box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -249,7 +269,6 @@ class IChingLogic:
 
 def draw_hexagram_lines(hex_code):
     """繪製六爻圖 (維持 V4.1 邏輯)"""
-    # 
     line_style = """
         <style>
         .yang-line { width: 100%; height: 20px; background-color: #2e2e2e; margin-bottom: 8px; border-radius: 4px; }
@@ -281,7 +300,7 @@ def main():
     st.set_page_config(page_title="IC-CSS 易時空決策系統", page_icon="☯️", layout="centered")
     app_logic = IChingLogic()
 
-    st.title("☯️ IC-CSS 易時空決策分析系統 V5.1")
+    st.title("☯️ IC-CSS 易時空決策分析系統 V5.2")
     st.caption("報告結構優化：核心洞察區域化，原文解讀集中化。")
     st.markdown("---")
 
@@ -319,7 +338,7 @@ def main():
         st.markdown("#### 🧠 內在心態 (下卦 / 空)")
         lower_sel = st.selectbox("選擇下卦：", options=trigram_keys, format_func=format_trigram_option_lower, index=0)
 
-    # C. 啟動按鈕 (V5.1 簡化)
+    # C. 啟動按鈕
     analyze_btn = st.button("卜算 🔮", use_container_width=True, type="primary")
 
     if analyze_btn:
@@ -353,7 +372,7 @@ def main():
 
             st.markdown("---")
             
-            # --- 報告區 2: 周易原文與專業解讀 ---
+            # --- 報告區 2: 周易原文與專業解讀 (現在即使數據缺失也會顯示清晰的警告) ---
             st.markdown(full_translation, unsafe_allow_html=True) # 第二大區塊
 
 # --- 執行區 ---
